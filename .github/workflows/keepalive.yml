@@ -1,0 +1,20 @@
+# GitHub zet geplande workflows in een openbare repo na 60 dagen zonder activiteit stil.
+# Deze workflow zet ze wekelijks opnieuw aan, zodat de hartslag blijft lopen.
+name: keepalive
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+permissions:
+  actions: write
+jobs:
+  aan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for w in helpdesk-mail.yml keepalive.yml; do
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$w/enable" && echo "$w aan"
+          done

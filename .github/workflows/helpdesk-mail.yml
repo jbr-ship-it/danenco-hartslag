@@ -1,0 +1,36 @@
+# Haalt elke 5 minuten de nieuwe mail van de Sticker-helpdesk op (voorheen een crontab op een Mac, elke minuut).
+# De helpdesk haalt zelf ook elke 60 seconden mail op zolang iemand de pagina open heeft; dit vangt de rest.
+# Alle gevoelige waarden staan in GitHub-secrets; in deze repo staat niets geheims.
+name: helpdesk-mail
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: helpdesk-mail
+  cancel-in-progress: false
+jobs:
+  ophalen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Mail ophalen
+        env:
+          HELPDESK_URL: ${{ secrets.HELPDESK_IMAP_URL }}
+        run: |
+          set -u
+          [ -n "$HELPDESK_URL" ] || { echo "::error::secret HELPDESK_IMAP_URL ontbreekt"; exit 1; }
+          for poging in 1 2 3; do
+            code=$(curl -s -m 60 -o antwoord.json -w '%{http_code}' "$HELPDESK_URL") || code=000
+            if [ "$code" = 403 ]; then
+              echo "::error::de helpdesk weigert de sleutel (HTTP 403): is IMAP_CRON_TOKEN gewijzigd?"; exit 1
+            fi
+            if [ "$code" = 200 ] && jq -e '.ok' antwoord.json >/dev/null 2>&1; then
+              echo "gelukt: $(jq -r '[.results[]?.fetched // 0] | add // 0' antwoord.json) nieuwe berichten, throttled=$(jq -r '.throttled' antwoord.json)"
+              exit 0
+            fi
+            echo "poging $poging: HTTP $code"; sleep 15
+          done
+          # tijdelijk onbereikbaar (bv. een runner die de server niet mag benaderen): de volgende ronde probeert opnieuw
+          echo "::warning::helpdesk niet bereikbaar na 3 pogingen; volgende ronde probeert opnieuw"
